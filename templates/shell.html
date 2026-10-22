@@ -1,0 +1,41 @@
+<!-- templates/shell.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Adventure Net Core</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="/static/theme.css">
+</head>
+<body hx-boost="true"> <!-- hx-boost converts standard links into instant Ajax actions -->
+
+    <!-- Base Canvas layout for WebGL engine -->
+    <div id="stage-container">
+        <canvas id="stage"></canvas>
+    </div>
+    
+    <!-- 1. Navigation Panel component -->
+    <div id="nav-mount">
+        {{ nav_component | safe if nav_component else "" }}
+    </div>
+    
+    <!-- 2. Interactive Control Panels (Conditional mount) -->
+    <div id="content-container">
+        {% if brand_component %}
+            <div id="brand-mount">{{ brand_component | safe }}</div>
+        {% endif %}
+        
+        {% if hud_component %}
+            <div id="hud-mount">{{ hud_component | safe }}</div>
+        {% endif %}
+
+        {% if map_component %}
+            <div id="map-mount">{{ map_component | safe }}</div>
+        {% endif %}
+    </div>
+
+    <!-- WebGL ThreeJS execution pipeline -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- <script src="/static/engine.js"></script> -->
+</body>
+</html>

@@ -1,0 +1,13 @@
+- isometric viewport
+- crawler controller
+- crawler API
+- db
+- level manager
+- geospatial mapper
+    - cytoscape, RAG?
+- image support
+- rpg fantasy map aesthetics
+- unified stylesheet
+- hub, pages
+
+- comfyui API
