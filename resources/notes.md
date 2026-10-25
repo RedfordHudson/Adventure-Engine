@@ -19,18 +19,22 @@ localhost:8000/docs
 
 ==
 
-web app to crawl event listing platforms and re-visualize. 
-
-
-
 full: (0) data source -> (1) crawler -> (2) database -> (3) backend -> (4) frontend
 
+[data-flow]
+0. click sync | GUI
+1. htmx post -> /crawler/sync | components/crawler_controller.py
+2. FastAPI router: /crawler/sync | routers/crawler_controller.py
+3. subprocess
 
+[status-indicator]
+4. httpx -> /internal/notify-status | surrogate.py
+5. FastAPI router: /internal/notify-status | routers/crawler_controller.py
+6. websocket | utils/websocket
+7. JS router | static/js/level_selector.js > Master > routeEvent
+8. update DOM element attribute | static/js/level_selector.js > CrawlerController.updateStatus > indicator.textContent
+9. script activation | templates/level_selector.html
 
-request: 0->2
-
-page load: 2->4
-
-time of last sync = <>
-
-DB - json, sqlalchemy, (rag: neo4j vs qdrant)
+[events]
+4. sqlite API | surrogate.py > DB
+5. sqlite DB | data/database.db

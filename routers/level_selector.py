@@ -8,9 +8,15 @@ import components
 from fastapi.templating import Jinja2Templates
 templates = Jinja2Templates(directory="templates")
 
-@router.get('/', response_class=fastapi.responses.HTMLResponse)
-async def get_index(request: fastapi.Request):
+from fastapi import Depends
+from utils.database import get_session, DB
+from sqlalchemy.ext.asyncio import AsyncSession
+from routers.crawler_controller import refresh
 
+@router.get('/', response_class=fastapi.responses.HTMLResponse)
+async def get_index(
+    request: fastapi.Request
+):
     return templates.TemplateResponse(
         request=request,
         name='level_selector.html',
@@ -29,13 +35,19 @@ from utils.websocket import ws
 # from utils.parse_events import get_events
 
 @router.websocket('/ws/levels')
-async def websocket_stream(websocket: fastapi.WebSocket):
+async def websocket_stream(
+    websocket: fastapi.WebSocket,
+    session: AsyncSession = Depends(get_session)
+):
     # await websocket.accept()
     await ws.connect(websocket)
 
     try:
-        await websocket.send_json([])
+        # await websocket.send_json([])
         # await ws.broadcast_json(get_events())
+
+        
+        await refresh(session=session)
 
         # Keep connection open to push updates later if backend state mutates
         while True:

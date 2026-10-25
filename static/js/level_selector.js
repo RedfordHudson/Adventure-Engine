@@ -1,40 +1,92 @@
 /**
- * Viewport - Base 3D Render Engine
- * Handles scene initialization, rendering, sizing, and generic controls.
+ * Dispose geometries, materials, and material textures for an Object3D tree.
+ */
+function disposeObject3D(root) {
+    const disposedGeometries = new Set();
+    const disposedMaterials = new Set();
+    const disposedTextures = new Set();
+
+    root.traverse((object) => {
+        if (object.geometry && !disposedGeometries.has(object.geometry)) {
+            object.geometry.dispose();
+            disposedGeometries.add(object.geometry);
+        }
+
+        const materials = Array.isArray(object.material)
+            ? object.material
+            : [object.material];
+
+        for (const material of materials) {
+            if (!material || disposedMaterials.has(material)) {
+                continue;
+            }
+
+            // Dispose maps/textures assigned to the material.
+            for (const value of Object.values(material)) {
+                if (value?.isTexture && !disposedTextures.has(value)) {
+                    value.dispose();
+                    disposedTextures.add(value);
+                }
+            }
+
+            material.dispose();
+            disposedMaterials.add(material);
+        }
+    });
+}
+
+function toHexColor(color, fallback = 0xffffff) {
+    const safeColor = Number.isInteger(color) ? color & 0xffffff : fallback;
+    return `#${safeColor.toString(16).padStart(6, "0")}`;
+}
+
+function isSafeHttpUrl(value) {
+    try {
+        const url = new URL(value, window.location.href);
+        return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Viewport
+ * Base Three.js viewport lifecycle, rendering, controls, sizing, and pointer state.
  */
 class Viewport {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
+
         if (!this.container) {
-            console.error(`[Viewport Error] Container element #${containerId} not found.`);
-            return;
+            throw new Error(`[Viewport Error] Container #${containerId} was not found.`);
         }
 
         this.scene = null;
         this.camera = null;
         this.renderer = null;
         this.controls = null;
-        this.clock = new THREE.Clock();
 
-        this.mouse = new THREE.Vector2(-9999, -9999); // Default off-screen
+        this.clock = new THREE.Clock(false);
+        this.pointer = new THREE.Vector2(-2, -2);
 
-        // Bind core lifecycle methods to maintain correct lexical 'this'
+        this.isRunning = false;
+        this.frameId = null;
+        this.resizeObserver = null;
+
         this.animate = this.animate.bind(this);
-        this._onWindowResize = this._onWindowResize.bind(this);
-        this._onMouseMove = this._onMouseMove.bind(this);
+        this._onResize = this._onResize.bind(this);
+        this._onPointerMove = this._onPointerMove.bind(this);
+        this._onPointerLeave = this._onPointerLeave.bind(this);
 
-        this.init();
+        this._initializeViewport();
     }
 
-    /**
-     * Initializes the core Three.js components.
-     * Can be overridden by subclasses, but super.init() should be called.
-     */
-    init() {
+    _initializeViewport() {
         this._initScene();
         this._initRenderer();
         this._initControls();
         this._initListeners();
+        this._onResize();
     }
 
     _initScene() {
@@ -42,478 +94,806 @@ class Viewport {
         this.scene.background = new THREE.Color(0x06060c);
         this.scene.fog = new THREE.FogExp2(0x06060c, 0.018);
 
-        this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1000);
         this.camera.position.set(30, 25, 38);
     }
 
     _initRenderer() {
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            powerPreference: "high-performance"
+        });
+
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
         this.container.appendChild(this.renderer.domElement);
     }
 
     _initControls() {
-        this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+        this.controls = new THREE.OrbitControls(
+            this.camera,
+            this.renderer.domElement
+        );
+
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
-        this.controls.maxPolarAngle = Math.PI / 2 - 0.02; // Keep camera above horizon
+        this.controls.maxPolarAngle = Math.PI / 2 - 0.02;
     }
 
     _initListeners() {
-        window.addEventListener('resize', this._onWindowResize);
-        window.addEventListener('mousemove', this._onMouseMove);
+        const canvas = this.renderer.domElement;
+
+        canvas.addEventListener("pointermove", this._onPointerMove);
+        canvas.addEventListener("pointerleave", this._onPointerLeave);
+
+        this.resizeObserver = new ResizeObserver(this._onResize);
+        this.resizeObserver.observe(this.container);
     }
 
-    _onWindowResize() {
-        if (!this.camera || !this.renderer) return;
-        this.camera.aspect = window.innerWidth / window.innerHeight;
+    _onResize() {
+        if (!this.renderer || !this.camera) {
+            return;
+        }
+
+        const { clientWidth: width, clientHeight: height } = this.container;
+
+        if (!width || !height) {
+            return;
+        }
+
+        this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setSize(width, height, false);
     }
 
-    _onMouseMove(event) {
-        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    _onPointerMove(event) {
+        const bounds = this.renderer.domElement.getBoundingClientRect();
+
+        this.pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+        this.pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
     }
 
-    /**
-     * Core Render Loop
-     * Subclasses should override update() instead of animate() to insert logic.
-     */
+    _onPointerLeave() {
+        // Ensures no object remains selected when the pointer leaves the canvas.
+        this.pointer.set(-2, -2);
+    }
+
+    start() {
+        if (this.isRunning) {
+            return;
+        }
+
+        this.isRunning = true;
+        this.clock.start();
+        this.animate();
+    }
+
+    stop() {
+        this.isRunning = false;
+
+        if (this.frameId) {
+            cancelAnimationFrame(this.frameId);
+            this.frameId = null;
+        }
+
+        this.clock.stop();
+    }
+
     animate() {
-        requestAnimationFrame(this.animate);
-        
-        const delta = this.clock.getDelta();
+        if (!this.isRunning) {
+            return;
+        }
+
+        this.frameId = requestAnimationFrame(this.animate);
+
+        const delta = Math.min(this.clock.getDelta(), 0.1);
         const elapsed = this.clock.getElapsedTime();
 
-        // Subclass-specific updates
         this.update(delta, elapsed);
-
-        if (this.controls) this.controls.update();
-        if (this.renderer && this.scene && this.camera) {
-            this.renderer.render(this.scene, this.camera);
-        }
+        this.controls?.update();
+        this.renderer?.render(this.scene, this.camera);
     }
 
     /**
-     * Optional update hook designed for subclasses to inject continuous frame calculations.
+     * Subclasses override this for frame-specific work.
      */
-    update(delta, elapsed) {
-        // To be implemented by subclasses
+    update(_delta, _elapsed) {}
+
+    dispose() {
+        this.stop();
+
+        const canvas = this.renderer?.domElement;
+
+        canvas?.removeEventListener("pointermove", this._onPointerMove);
+        canvas?.removeEventListener("pointerleave", this._onPointerLeave);
+
+        this.resizeObserver?.disconnect();
+        this.controls?.dispose();
+
+        if (this.scene) {
+            disposeObject3D(this.scene);
+        }
+
+        this.renderer?.dispose();
+        canvas?.remove();
     }
 }
 
 /**
- * LevelSelector - Game-Specific Level Selection Viewport
- * Handles network updates, tower rendering, target selection, and HUD binding.
+ * LevelSelector
+ * Scene-specific rendering, node selection, HUD updates, and interaction.
  */
 class LevelSelector extends Viewport {
-    constructor(containerId, webSocketUrl) {
-        // Initialize base viewport system first
+    constructor(containerId) {
         super(containerId);
 
-        this.wsUrl = webSocketUrl;
-        this.nodes = [];           // Raw database level nodes
-        this.orbObjects = [];      // Floating interactive mesh targets
-        this.sceneObjects = [];    // Non-interactive structural tower meshes
-        
-        this.currentlyHoveredNode = null;
-        this.raycaster = new THREE.Raycaster();
+        this.nodes = [];
+        this.nodesById = new Map();
 
-        // HUD DOM Bindings
+        this.orbObjects = [];
+        this.currentlyHoveredNode = null;
+
+        this.raycaster = new THREE.Raycaster();
+        this.textureLoader = new THREE.TextureLoader();
+
+        // Incremented every time node content is rebuilt.
+        // Prevents late texture callbacks from updating obsolete objects.
+        this.nodeGeneration = 0;
+
+        this.nodeGroup = new THREE.Group();
+        this.nodeGroup.name = "DynamicLevelNodes";
+        this.scene.add(this.nodeGroup);
+
         this.hud = {
-            card: document.getElementById('node-card'),
-            title: document.getElementById('node-title'),
-            coords: document.getElementById('node-coords'),
-            desc: document.getElementById('node-desc'),
-            btn: document.getElementById('node-btn'),
-            iframe: document.getElementById('node-preview-iframe')
+            card: document.getElementById("node-card"),
+            title: document.getElementById("node-title"),
+            coords: document.getElementById("node-coords"),
+            desc: document.getElementById("node-desc"),
+            btn: document.getElementById("node-btn"),
+            iframe: document.getElementById("node-preview-iframe")
         };
 
-        // Initialize Level Specific components
-        this.initLevelSelector();
+        this._onCanvasClick = this._onCanvasClick.bind(this);
+
+        this._initLevelSelector();
     }
 
-    /**
-     * Set up tactical gameplay layers & connections
-     */
-    initLevelSelector() {
+    _initLevelSelector() {
         this._initLighting();
         this._initEnvironment();
-        this._initInteractivity();
-        this._initWebSocket();   
+
+        this.renderer.domElement.addEventListener("click", this._onCanvasClick);
     }
 
     _initLighting() {
-        // High-intensity warm ambient light to illuminate dark faces
-        const ambientLight = new THREE.AmbientLight(0xffebd9, 1.8); 
+        const ambientLight = new THREE.AmbientLight(0xffebd9, 1.8);
         this.scene.add(ambientLight);
 
-        // Blazing Golden Key Sunlight
         const sunLight = new THREE.DirectionalLight(0xffaa44, 2.5);
         sunLight.position.set(40, 50, 30);
         sunLight.castShadow = true;
-        
-        // Optimize shadows for bright environment
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.mapSize.set(2048, 2048);
         sunLight.shadow.bias = -0.001;
         this.scene.add(sunLight);
 
-        // Cyber Magenta Fill Light (for warm neon shadows)
         const shadowFill = new THREE.DirectionalLight(0xff00aa, 0.8);
         shadowFill.position.set(-40, 20, -30);
         this.scene.add(shadowFill);
 
-        // Brighten up the scene background and fog to match daylight sunset
-        this.scene.background = new THREE.Color(0x2b1025); 
+        this.scene.background = new THREE.Color(0x2b1025);
         this.scene.fog = new THREE.FogExp2(0x2b1025, 0.012);
     }
 
     _initEnvironment() {
-        // 1. Warm Cyber Grid
         const gridHelper = new THREE.GridHelper(90, 45, 0xff7b00, 0xff0055);
         gridHelper.position.y = -0.05;
-        gridHelper.material.opacity = 0.15;
-        gridHelper.material.transparent = true;
+
+        // GridHelper can use either one material or an array depending on version.
+        const gridMaterials = Array.isArray(gridHelper.material)
+            ? gridHelper.material
+            : [gridHelper.material];
+
+        gridMaterials.forEach((material) => {
+            material.opacity = 0.15;
+            material.transparent = true;
+        });
+
         this.scene.add(gridHelper);
 
-        // 2. Rugged RPG Fantasy Landscape Plane
         const terrainSize = 100;
         const segments = 60;
-        const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, segments, segments);
-        terrainGeo.rotateX(-Math.PI / 2);
 
-        const posAttr = terrainGeo.attributes.position;
-        for (let i = 0; i < posAttr.count; i++) {
-            const x = posAttr.getX(i);
-            const z = posAttr.getZ(i);
-            
-            // Higher, more organic mountain ridges combined with low valleys
+        const terrainGeometry = new THREE.PlaneGeometry(
+            terrainSize,
+            terrainSize,
+            segments,
+            segments
+        );
+
+        terrainGeometry.rotateX(-Math.PI / 2);
+
+        const positions = terrainGeometry.attributes.position;
+
+        for (let i = 0; i < positions.count; i++) {
+            const x = positions.getX(i);
+            const z = positions.getZ(i);
+
             let height = Math.sin(x * 0.08) * Math.cos(z * 0.08) * 3.5;
-            height += Math.sin(x * 0.03) * 2.0; // Broad topography layers
-            
-            // Flatten the center play area slightly so towers sit naturally
-            const distFromCenter = Math.sqrt(x*x + z*z);
-            if (distFromCenter < 25) {
-                height *= (distFromCenter / 25);
-            }
-            posAttr.setY(i, height);
-        }
-        terrainGeo.computeVertexNormals();
+            height += Math.sin(x * 0.03) * 2.0;
 
-        const terrainMat = new THREE.MeshStandardMaterial({
-            color: 0x1a0f18, // Deep warm obsidian/mulberry soil
+            const distanceFromCenter = Math.hypot(x, z);
+
+            if (distanceFromCenter < 25) {
+                height *= distanceFromCenter / 25;
+            }
+
+            positions.setY(i, height);
+        }
+
+        terrainGeometry.computeVertexNormals();
+
+        const terrainMaterial = new THREE.MeshStandardMaterial({
+            color: 0x1a0f18,
             roughness: 0.85,
             metalness: 0.1,
             flatShading: true
         });
-        const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
-        terrainMesh.receiveShadow = true;
-        this.scene.add(terrainMesh);
 
-        // 3. Spawning arbitrary natural/cyber landmarks (e.g., giant glowing crystal obelisks)
-        const landmarkPositions = [[-25, -20], [28, 22], [-30, 15]];
-        landmarkPositions.forEach(([lx, lz], idx) => {
-            const obeliskGeo = new THREE.ConeGeometry(2, 12, 4);
-            const obeliskMat = new THREE.MeshStandardMaterial({
+        const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+        terrain.receiveShadow = true;
+        this.scene.add(terrain);
+
+        const landmarkPositions = [
+            [-25, -20],
+            [28, 22],
+            [-30, 15]
+        ];
+
+        landmarkPositions.forEach(([x, z], index) => {
+            const geometry = new THREE.ConeGeometry(2, 12, 4);
+            const material = new THREE.MeshStandardMaterial({
                 color: 0x2e0854,
-                emissive: idx % 2 === 0 ? 0xff3300 : 0xff0055,
+                emissive: index % 2 === 0 ? 0xff3300 : 0xff0055,
                 emissiveIntensity: 0.15,
                 roughness: 0.1,
                 metalness: 0.9,
                 flatShading: true
             });
-            const obelisk = new THREE.Mesh(obeliskGeo, obeliskMat);
-            obelisk.position.set(lx, 5, lz);
-            obelisk.rotation.y = idx * 0.5;
+
+            const obelisk = new THREE.Mesh(geometry, material);
+            obelisk.position.set(x, 5, z);
+            obelisk.rotation.y = index * 0.5;
+            obelisk.castShadow = true;
+
             this.scene.add(obelisk);
         });
-
-        // Group for updating nodes dynamically
-        this.interactiveGroup = new THREE.Group();
-        this.scene.add(this.interactiveGroup);
     }
 
-    _initInteractivity() {
-        // Add viewport click interactions
-        window.addEventListener('click', () => {
-            if (this.currentlyHoveredNode) {
-                const nodeData = this.nodes.find(n => n.id === this.currentlyHoveredNode.userData.nodeId);
-                if (nodeData) {
-                    this._triggerSelectionFlash();
-                    console.log(`>>> INITIALIZING TACTICAL TRANSPORTS: ${nodeData.title.toUpperCase()}`);
-                    alert(`>>> INITIALIZING TACTICAL TRANSPORTS TO: ${nodeData.title.toUpperCase()}`);
-                }
-            }
-        });
+    _onCanvasClick() {
+        if (!this.currentlyHoveredNode) {
+            return;
+        }
+
+        const nodeId = this.currentlyHoveredNode.userData.nodeId;
+        const node = this.nodesById.get(nodeId);
+
+        if (!node) {
+            return;
+        }
+
+        this._triggerSelectionFlash();
+
+        console.log(
+            `>>> INITIALIZING TACTICAL TRANSPORTS: ${node.title.toUpperCase()}`
+        );
+
+        // Replace this with your navigation/selection handler.
+        alert(`>>> INITIALIZING TACTICAL TRANSPORTS TO: ${node.title.toUpperCase()}`);
     }
 
     _triggerSelectionFlash() {
-        this.currentlyHoveredNode.material.emissiveIntensity = 3.0;
-        setTimeout(() => {
-            if (this.currentlyHoveredNode) {
-                this.currentlyHoveredNode.material.emissiveIntensity = 1.8;
+        const orb = this.currentlyHoveredNode;
+
+        if (!orb) {
+            return;
+        }
+
+        const originalIntensity = orb.material.emissiveIntensity;
+        orb.material.emissiveIntensity = 3.0;
+
+        window.setTimeout(() => {
+            // Ensure the same orb is still active and attached to the current scene.
+            if (orb.parent) {
+                orb.material.emissiveIntensity =
+                    orb === this.currentlyHoveredNode ? 1.8 : originalIntensity;
             }
         }, 120);
     }
 
-    _initWebSocket() {
-        console.log(`[Socket] Uplink targeting: ${this.wsUrl}`);
-        this.socket = new WebSocket(this.wsUrl);
-
-        const statusDot = document.getElementById("ws-indicator");
-        const statusText = document.getElementById("ws-status");
-    
-        this.socket.onopen = () => {
-          statusDot?.classList.add("connected");
-          if (statusText) statusText.innerText = "websocket connected";
-        };
-
-
-        this.socket.onmessage = (event) => {
-            try {
-                const payload = JSON.parse(event.data);
-                const incomingNodes = Array.isArray(payload) ? payload : payload.level_nodes;
-                
-                if (incomingNodes) {
-                    this.updateLevelNodes(incomingNodes);
-                }
-            } catch (err) {
-                console.error("[Socket Error] Frame parsing failure:", err);
-            }
-        };
-
-        this.socket.onclose = () => {
-            console.warn("[Socket Down] Telemetry lost. Re-linking in 5s...");
-            setTimeout(() => this._initWebSocket(), 5000);
-        };
-    }
-
-    /**
-     * Helper to render dynamic text onto a canvas texture for 3D viewport titles
-     */
-    _createFloatingTextTexture(text, colorHex) {
-        const canvas = document.createElement('canvas');
+    _createFloatingTextTexture(text, color) {
+        const canvas = document.createElement("canvas");
         canvas.width = 512;
         canvas.height = 128;
-        const ctx = canvas.getContext('2d');
 
-        // Transparent background
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const context = canvas.getContext("2d");
 
-        // Cyber font style
-        ctx.font = 'bold 36px monospace';
-        ctx.fillStyle = colorHex;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        // Add cyber glow shadow
-        ctx.shadowColor = colorHex;
-        ctx.shadowBlur = 10;
-        ctx.fillText(text.toUpperCase(), 256, 64);
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.font = "bold 36px monospace";
+        context.fillStyle = color;
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.shadowColor = color;
+        context.shadowBlur = 10;
+        context.fillText(String(text).toUpperCase(), 256, 64);
 
         const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+
         return texture;
     }
 
-    updateLevelNodes(newNodesList) {
-        this.nodes = newNodesList;
+    _clearLevelNodes() {
+        this.nodeGeneration += 1;
         this.currentlyHoveredNode = null;
-        if (this.hud.card) this.hud.card.classList.remove('active');
-
-        // Cleanup previous meshes to protect VRAM
-        this.orbObjects.forEach(orb => {
-            this.interactiveGroup.remove(orb);
-            orb.geometry.dispose();
-            orb.material.dispose();
-        });
         this.orbObjects = [];
+        this.nodes = [];
+        this.nodesById.clear();
 
-        this.sceneObjects.forEach(obj => {
-            this.scene.remove(obj);
-            obj.geometry.dispose();
-            if (Array.isArray(obj.material)) {
-                obj.material.forEach(m => m.dispose());
-            } else {
-                obj.material.dispose();
-            }
+        this.hud.card?.classList.remove("active");
+
+        disposeObject3D(this.nodeGroup);
+        this.nodeGroup.clear();
+    }
+
+    updateLevelNodes(incomingNodes) {
+        if (!Array.isArray(incomingNodes)) {
+            console.warn("[LevelSelector] Ignored node update: expected an array.");
+            return;
+        }
+
+        this._clearLevelNodes();
+
+        this.nodes = incomingNodes.filter((node) => {
+            return (
+                node &&
+                node.id !== undefined &&
+                Array.isArray(node.pos) &&
+                node.pos.length >= 3
+            );
         });
-        this.sceneObjects = [];
 
-        const textureLoader = new THREE.TextureLoader();
+        this.nodesById = new Map(this.nodes.map((node) => [node.id, node]));
 
-        this.nodes.forEach(node => {
-            const towerHeight = node.towerHeight;
-            const hexColorStr = `#${node.color.toString(16).padStart(6, '0')}`;
+        const activeGeneration = this.nodeGeneration;
 
-            // A. Base Cyber-Tower
-            const towerGeo = new THREE.CylinderGeometry(0.8, 1.6, towerHeight, 4);
-            const towerMat = new THREE.MeshStandardMaterial({
-                color: 0x3d2538, // Lighter, warmer metallic alloy base
-                roughness: 0.3,
-                metalness: 0.7,
-                flatShading: true,
-                emissive: node.color,
-                emissiveIntensity: 0.15
-            });
-            const tower = new THREE.Mesh(towerGeo, towerMat);
-            tower.position.set(node.pos[0], towerHeight / 2, node.pos[2]);
-            this.scene.add(tower);
-            this.sceneObjects.push(tower);
+        this.nodes.forEach((node, index) => {
+            const [x, y, z] = node.pos.map(Number);
+            const towerHeight = Math.max(1, Number(node.towerHeight) || 8);
+            const color = Number.isInteger(node.color) ? node.color : 0xffffff;
+            const hexColor = toHexColor(color);
 
-            // B. Tech Glow Ring
-            const ringGeo = new THREE.TorusGeometry(1.6, 0.08, 8, 16);
-            const ringMat = new THREE.MeshBasicMaterial({ color: node.color, transparent: true, opacity: 0.8 });
-            const ring = new THREE.Mesh(ringGeo, ringMat);
-            ring.rotation.x = Math.PI / 2;
-            ring.position.set(node.pos[0], towerHeight - 0.2, node.pos[2]);
-            this.scene.add(ring);
-            this.sceneObjects.push(ring);
+            const tower = this._createTower(x, z, towerHeight, color);
+            const ring = this._createTowerRing(x, z, towerHeight, color);
+            const text = this._createNodeLabel(node.title, x, z, towerHeight, hexColor);
+            const orb = this._createOrb(node, index, x, y, z, color);
 
-            // C. 2D Hologram Image Banner (Positioned directly next to the tower top)
-            if (node.imageUrl) {
-                const imageGeo = new THREE.PlaneGeometry(3.5, 4.5);
-                const imageMat = new THREE.MeshBasicMaterial({
-                    transparent: true,
-                    opacity: 0.95,
-                    side: THREE.DoubleSide,
-                    color: 0xffffff
-                });
-
-                textureLoader.load(node.imageUrl, (texture) => {
-                    imageMat.map = texture;
-                    imageMat.needsUpdate = true;
-                }, undefined, () => {
-                    imageMat.color.setHex(node.color);
-                });
-
-                const imagePlane = new THREE.Mesh(imageGeo, imageMat);
-                // Positioned on the left side of the tower, floating slightly
-                imagePlane.position.set(node.pos[0] - 2.8, towerHeight + 1.5, node.pos[2]);
-                
-                // Flag this plane as a billboard target
-                imagePlane.userData = { isBillboard: true };
-                this.scene.add(imagePlane);
-                this.sceneObjects.push(imagePlane);
-            }
-
-            // D. Floating Title Canvas Plane Above Node
-            const textTexture = this._createFloatingTextTexture(node.title, hexColorStr);
-            const textGeo = new THREE.PlaneGeometry(8, 2);
-            const textMat = new THREE.MeshBasicMaterial({
-                map: textTexture,
-                transparent: true,
-                side: THREE.DoubleSide
-            });
-            const textMesh = new THREE.Mesh(textGeo, textMat);
-            // Positioned high above the tower
-            textMesh.position.set(node.pos[0], towerHeight + 4.2, node.pos[2]);
-            
-            // Flag this text plane as a billboard target
-            textMesh.userData = { isBillboard: true };
-            this.scene.add(textMesh);
-            this.sceneObjects.push(textMesh);
-
-            // E. Floating Core Orb
-            const orbGeo = new THREE.IcosahedronGeometry(1.0, 1);
-            const orbMat = new THREE.MeshStandardMaterial({
-                color: node.color,
-                emissive: node.color,
-                emissiveIntensity: 1.4,
-                roughness: 0.1,
-                transparent: true,
-                opacity: 0.9,
-                flatShading: true
-            });
-            const orb = new THREE.Mesh(orbGeo, orbMat);
-            orb.position.set(node.pos[0], node.pos[1], node.pos[2]);
-
-            orb.userData = {
-                nodeId: node.id,
-                originalColor: node.color,
-                baseY: node.pos[1]
-            };
-
-            this.interactiveGroup.add(orb);
+            this.nodeGroup.add(tower, ring, text, orb);
             this.orbObjects.push(orb);
+
+            if (node.imageUrl) {
+                const banner = this._createImageBanner(
+                    node,
+                    x,
+                    z,
+                    towerHeight,
+                    color,
+                    activeGeneration
+                );
+
+                this.nodeGroup.add(banner);
+            }
         });
     }
 
-    update(delta, elapsed) {
-        // 1. Smooth levitation and spinning core orbs
-        this.orbObjects.forEach((orb) => {
-            orb.position.y = orb.userData.baseY + Math.sin(elapsed * 2 + orb.userData.nodeId) * 0.35;
-            orb.rotation.y += 0.012;
-            orb.rotation.x += 0.006;
+    _createTower(x, z, height, color) {
+        const geometry = new THREE.CylinderGeometry(0.8, 1.6, height, 4);
+        const material = new THREE.MeshStandardMaterial({
+            color: 0x3d2538,
+            roughness: 0.3,
+            metalness: 0.7,
+            flatShading: true,
+            emissive: color,
+            emissiveIntensity: 0.15
         });
 
-        // 2. Billboard alignment: Force both images and text planes to face the viewport viewer
-        this.sceneObjects.forEach((obj) => {
-            if (obj.userData && obj.userData.isBillboard) {
-                obj.quaternion.copy(this.camera.quaternion);
-            }
+        const tower = new THREE.Mesh(geometry, material);
+        tower.position.set(x, height / 2, z);
+        tower.castShadow = true;
+        tower.receiveShadow = true;
+
+        return tower;
+    }
+
+    _createTowerRing(x, z, height, color) {
+        const geometry = new THREE.TorusGeometry(1.6, 0.08, 8, 16);
+        const material = new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.8
         });
 
-        // 3. Update Intersections / Selection
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects(this.orbObjects);
+        const ring = new THREE.Mesh(geometry, material);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.set(x, height - 0.2, z);
 
-        if (intersects.length > 0) {
-            const hoveredOrb = intersects[0].object;
+        return ring;
+    }
 
-            if (this.currentlyHoveredNode !== hoveredOrb) {
-                if (this.currentlyHoveredNode) {
-                    this.currentlyHoveredNode.material.emissiveIntensity = 1.0;
-                    this.currentlyHoveredNode.scale.set(1, 1, 1);
+    _createNodeLabel(title, x, z, height, hexColor) {
+        const geometry = new THREE.PlaneGeometry(8, 2);
+        const material = new THREE.MeshBasicMaterial({
+            map: this._createFloatingTextTexture(title, hexColor),
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        });
+
+        const label = new THREE.Mesh(geometry, material);
+        label.position.set(x, height + 4.2, z);
+        label.userData.isBillboard = true;
+
+        return label;
+    }
+
+    _createImageBanner(node, x, z, height, color, generation) {
+        const geometry = new THREE.PlaneGeometry(3.5, 4.5);
+        const material = new THREE.MeshBasicMaterial({
+            transparent: true,
+            opacity: 0.95,
+            side: THREE.DoubleSide,
+            color: 0xffffff,
+            depthWrite: false
+        });
+
+        const banner = new THREE.Mesh(geometry, material);
+        banner.position.set(x - 2.8, height + 1.5, z);
+        banner.userData.isBillboard = true;
+
+        this.textureLoader.load(
+            node.imageUrl,
+            (texture) => {
+                // Ignore and dispose textures loaded after this scene was replaced.
+                if (generation !== this.nodeGeneration || !banner.parent) {
+                    texture.dispose();
+                    return;
                 }
 
-                this.currentlyHoveredNode = hoveredOrb;
-                this.currentlyHoveredNode.material.emissiveIntensity = 1.8;
-                this.currentlyHoveredNode.scale.set(1.4, 1.4, 1.4);
+                material.map = texture;
+                material.needsUpdate = true;
+            },
+            undefined,
+            () => {
+                // Use a colored fallback if the remote image does not load.
+                material.color.setHex(color);
+                material.needsUpdate = true;
+            }
+        );
 
-                const info = this.nodes.find(n => n.id === hoveredOrb.userData.nodeId);
-                if (info) this._updateHUD(info);
-            }
-        } else {
-            if (this.currentlyHoveredNode) {
-                this.currentlyHoveredNode.material.emissiveIntensity = 1.0;
-                this.currentlyHoveredNode.scale.set(1, 1, 1);
-                this.currentlyHoveredNode = null;
-                if (this.hud.card) this.hud.card.classList.remove('active');
-            }
+        return banner;
+    }
+
+    _createOrb(node, index, x, y, z, color) {
+        const geometry = new THREE.IcosahedronGeometry(1.0, 1);
+        const material = new THREE.MeshStandardMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: 1.0,
+            roughness: 0.1,
+            transparent: true,
+            opacity: 0.9,
+            flatShading: true
+        });
+
+        const orb = new THREE.Mesh(geometry, material);
+        orb.position.set(x, y, z);
+
+        orb.userData = {
+            nodeId: node.id,
+            baseY: y,
+            phase: index * 0.75
+        };
+
+        return orb;
+    }
+
+    _setHoveredNode(nextOrb) {
+        if (this.currentlyHoveredNode === nextOrb) {
+            return;
+        }
+
+        if (this.currentlyHoveredNode) {
+            this.currentlyHoveredNode.material.emissiveIntensity = 1.0;
+            this.currentlyHoveredNode.scale.setScalar(1);
+        }
+
+        this.currentlyHoveredNode = nextOrb;
+
+        if (!nextOrb) {
+            this.hud.card?.classList.remove("active");
+            return;
+        }
+
+        nextOrb.material.emissiveIntensity = 1.8;
+        nextOrb.scale.setScalar(1.4);
+
+        const node = this.nodesById.get(nextOrb.userData.nodeId);
+
+        if (node) {
+            this._updateHUD(node);
         }
     }
 
-    _updateHUD(info) {
-        if (!this.hud.card) return;
-        
-        this.hud.title.innerText = info.title;
-        this.hud.coords.innerText = info.coords;
-        this.hud.desc.innerText = info.desc;
+    _updateHUD(node) {
+        if (!this.hud.card) {
+            return;
+        }
 
-        const hexColor = `#${info.color.toString(16).padStart(6, '0')}`;
+        const hexColor = toHexColor(node.color);
+
+        if (this.hud.title) {
+            this.hud.title.textContent = node.title ?? "Untitled Node";
+            this.hud.title.style.color = hexColor;
+            this.hud.title.style.textShadow = `0 0 8px ${hexColor}`;
+        }
+
+        if (this.hud.coords) {
+            this.hud.coords.textContent = node.coords ?? "";
+        }
+
+        if (this.hud.desc) {
+            this.hud.desc.textContent = node.desc ?? "";
+        }
+
         this.hud.card.style.borderColor = hexColor;
         this.hud.card.style.boxShadow = `0 0 25px ${hexColor}44`;
-        this.hud.title.style.color = hexColor;
-        this.hud.title.style.textShadow = `0 0 8px ${hexColor}`;
 
-        // this.hud.iframe.src = `https://image.thum.io/get/width/400/crop/800/${info.url}`;
-        // this.hud.iframe.src = `${info.url}`;
-        this.hud.iframe.src = info.url;
-        
         if (this.hud.btn) {
             this.hud.btn.style.borderColor = hexColor;
             this.hud.btn.style.color = hexColor;
         }
 
-        this.hud.card.classList.add('active');
+        // Do not automatically load arbitrary iframe URLs.
+        // Ideally, enforce an application-specific allowlist here.
+        if (this.hud.iframe && isSafeHttpUrl(node.url)) {
+            this.hud.iframe.src = node.url;
+        }
+
+        this.hud.card.classList.add("active");
+    }
+
+    update(delta, elapsed) {
+        for (const orb of this.orbObjects) {
+            orb.position.y =
+                orb.userData.baseY +
+                Math.sin(elapsed * 2 + orb.userData.phase) * 0.35;
+
+            orb.rotation.y += delta * 0.72;
+            orb.rotation.x += delta * 0.36;
+        }
+
+        this.nodeGroup.traverse((object) => {
+            if (object.userData?.isBillboard) {
+                object.quaternion.copy(this.camera.quaternion);
+            }
+        });
+
+        this.raycaster.setFromCamera(this.pointer, this.camera);
+
+        const [intersection] = this.raycaster.intersectObjects(
+            this.orbObjects,
+            false
+        );
+
+        this._setHoveredNode(intersection?.object ?? null);
+    }
+
+    dispose() {
+        this.renderer?.domElement.removeEventListener("click", this._onCanvasClick);
+        super.dispose();
     }
 }
 
+/**
+ * Updates one or more crawler status indicators.
+ *
+ * Suggested HTML:
+ * <span data-crawler-status="crawler-a"></span>
+ * <span data-crawler-status="crawler-b"></span>
+ */
+class CrawlerController {
+    updateStatus(crawlerId, status) {
+        // const selector = `[data-crawler-status="${CSS.escape(String(crawlerId))}"]`;
+        // const indicator = document.querySelector(selector);
 
-const viewer = new LevelSelector('viewport-container', 'ws://localhost:8000/ws/levels');
-viewer.animate();
+        const indicator = document.getElementById('status-indicator-luma')
+
+        if (!indicator) {
+            console.warn(`[Crawler] No status indicator found for: ${crawlerId}`);
+            return;
+        }
+
+        const normalizedStatus = String(status ?? "unknown").toLowerCase();
+
+        indicator.textContent = normalizedStatus;
+        indicator.dataset.status = normalizedStatus;
+        indicator.setAttribute("aria-label", `${crawlerId}: ${normalizedStatus}`);
+    }
+}
+
+/**
+ * Master
+ * Owns application lifecycle and the single WebSocket connection.
+ */
+class Master {
+    constructor(webSocketUrl) {
+        this.wsUrl = webSocketUrl;
+
+        this.levelSelector = new LevelSelector("viewport-container");
+        this.crawlerController = new CrawlerController();
+
+        this.socket = null;
+        this.reconnectTimer = null;
+        this.reconnectAttempt = 0;
+        this.isDisposed = false;
+
+        this.statusDot = document.getElementById("ws-indicator");
+        this.statusText = document.getElementById("ws-status");
+
+        this._connectWebSocket();
+    }
+
+    start() {
+        this.levelSelector.start();
+    }
+
+    _setSocketStatus(status, text) {
+        this.statusDot?.classList.toggle("connected", status === "connected");
+        this.statusDot?.classList.toggle("disconnected", status !== "connected");
+
+        if (this.statusText) {
+            this.statusText.textContent = text;
+        }
+    }
+
+    _connectWebSocket() {
+        if (this.isDisposed) {
+            return;
+        }
+
+        if (
+            this.socket &&
+            (this.socket.readyState === WebSocket.OPEN ||
+                this.socket.readyState === WebSocket.CONNECTING)
+        ) {
+            return;
+        }
+
+        console.log(`[Socket] Connecting: ${this.wsUrl}`);
+        this._setSocketStatus("connecting", "websocket connecting");
+
+        try {
+            this.socket = new WebSocket(this.wsUrl);
+        } catch (error) {
+            console.error("[Socket Error] Connection initialization failed:", error);
+            this._scheduleReconnect();
+            return;
+        }
+
+        this.socket.addEventListener("open", () => {
+            this.reconnectAttempt = 0;
+            this._setSocketStatus("connected", "websocket connected");
+        });
+
+        this.socket.addEventListener("message", (event) => {
+            this._handleSocketMessage(event);
+        });
+
+        this.socket.addEventListener("error", () => {
+            this._setSocketStatus("error", "websocket error");
+        });
+
+        this.socket.addEventListener("close", () => {
+            this._setSocketStatus("disconnected", "websocket disconnected");
+            this._scheduleReconnect();
+        });
+    }
+
+    _handleSocketMessage(event) {
+        let payload;
+
+        try {
+            payload = JSON.parse(event.data);
+        } catch (error) {
+            console.error("[Socket Error] Invalid JSON frame:", error);
+            return;
+        }
+
+        this.routeEvent(payload);
+    }
+
+    routeEvent(payload) {
+        if (!payload || typeof payload.event_type !== "string") {
+            console.warn("[Socket] Ignored malformed payload:", payload);
+            return;
+        }
+
+        switch (payload.event_type) {
+            case "status_change": {
+                if (payload.source_id == null || payload.status == null) {
+                    console.warn("[Socket] Invalid status_change payload:", payload);
+                    return;
+                }
+
+                this.crawlerController.updateStatus(
+                    payload.source_id,
+                    payload.status
+                );
+                break;
+            }
+
+            case "data_stream": {
+                if (!Array.isArray(payload.data)) {
+                    console.warn("[Socket] Invalid data_stream payload:", payload);
+                    return;
+                }
+
+                this.levelSelector.updateLevelNodes(payload.data);
+                break;
+            }
+
+            default:
+                console.warn(`[Socket] Unknown event type: ${payload.event_type}`);
+        }
+    }
+
+    _scheduleReconnect() {
+        if (this.isDisposed || this.reconnectTimer) {
+            return;
+        }
+
+        // Exponential backoff capped at 30 seconds.
+        const delay = Math.min(1000 * 2 ** this.reconnectAttempt, 30000);
+        this.reconnectAttempt += 1;
+
+        console.warn(`[Socket] Reconnecting in ${Math.round(delay / 1000)} seconds.`);
+
+        this.reconnectTimer = window.setTimeout(() => {
+            this.reconnectTimer = null;
+            this._connectWebSocket();
+        }, delay);
+    }
+
+    dispose() {
+        this.isDisposed = true;
+
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+
+        if (this.socket) {
+            this.socket.close();
+            this.socket = null;
+        }
+
+        this.levelSelector.dispose();
+    }
+}
+
+const master = new Master("ws://localhost:8000/ws/levels");
+master.start();
+
+// Optional cleanup for a single-page application or page teardown:
+// window.addEventListener("beforeunload", () => master.dispose());

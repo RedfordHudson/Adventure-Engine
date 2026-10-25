@@ -48,7 +48,29 @@ class RawEvent(Base):
 
 # --- db dependency ---
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     # FastAPI dependency to yield db sessions and handle cleanups.
     async with AsyncSessionLocal() as session:
         yield session
+
+from sqlalchemy import update, select, delete
+import utils.schemas as schemas
+
+class DB:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        
+    async def get_events(self):
+
+        result = await self.session.execute(select(RawEvent))
+        events = result.scalars().all()
+
+        events = [schemas.RawEventRead.model_validate(e).model_dump() for e in events]
+
+        return events
+    
+    async def delete_events(self):
+
+        # self.session.query(RawEvent).delete()
+        await self.session.execute(delete(RawEvent))
+        await self.session.commit()
