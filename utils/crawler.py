@@ -15,7 +15,7 @@ from datetime import datetime
 class Event(BaseModel):
     title: str
     start_time: datetime
-    location: str
+    address: str
     link: str
     image_link: str
 
@@ -24,7 +24,7 @@ class EventList(BaseModel):
 
 INSTRUCTIONS = (
     "Extract events from the page. "
-    "Extract the event title, start date/time, location, "
+    "Extract the event title, start date/time, full address, "
     "canonical event URL, and image URL. "
     "Return absolute URLs for links and images. "
     "Use the event's own link, not unrelated page links. "

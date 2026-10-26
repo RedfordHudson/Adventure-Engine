@@ -17,8 +17,9 @@ def address2coordinates(address: str) -> tuple[float, float] | None:
         )
 
         if location is None:
-            return 0,0
+            return None,None
 
         return location.latitude, location.longitude
-    except:
-        return 0,0
+    except Exception as e:
+        print(f'[geospatial:exception] {address} | {e}')
+        return None,None

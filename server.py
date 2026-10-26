@@ -1,15 +1,12 @@
 # 1. spawn app
 from fastapi import FastAPI
 import routers.crawler_controller
-app = FastAPI(title='Generative Isometric Engine', version='3.0.0')
+app = FastAPI(title='Adventure Engine', version='3.0.0')
 
 # 2. plug in routers
-# from routers import css, level_selector, ui, api
 import routers
-app.include_router(routers.css.router)
-# app.include_router(ui.router)
-# app.include_router(api.router)
-app.include_router(routers.level_selector.router)
+app.include_router(routers.template.router)
+app.include_router(routers.websocket.router)
 app.include_router(routers.crawler_controller.router)
 app.include_router(routers.database.router)
 

@@ -1,7 +1,14 @@
 import uuid
 from datetime import datetime
 from typing import AsyncGenerator
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, select
+from sqlalchemy import (
+    Column,
+    String,
+    DateTime,
+    Text,
+    ForeignKey,
+    Float
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -39,7 +46,9 @@ class RawEvent(Base):
     source_id = Column(UUID(as_uuid=True), ForeignKey('event_sources.id'), nullable=False)
     title = Column(String(500), nullable=False)
     start_time = Column(DateTime(timezone=True), nullable=False)
-    location = Column(String(500), nullable=False)
+    address = Column(String(500), nullable=False)
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
     link = Column(Text, nullable=False)
     image_link = Column(Text, nullable=False)
     

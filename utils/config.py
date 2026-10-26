@@ -1,15 +1,10 @@
-from pydantic import BaseModel
+# Dock regions must match the CSS/JS: data-dock='left|center|right|bottom'
+DOCKS = ['left', 'center', 'right', 'bottom']
 
-# UI Configuration defined entirely in Python
-SLIDERS_SCHEMA = [
-    {"id": "freq", "label": "Wave Frequency", "min": 0.05, "max": 0.60, "step": 0.01, "default": 0.22},
-    {"id": "amp", "label": "Elevation Amplitude", "min": 0.5, "max": 5.0, "step": 0.1, "default": 2.80},
+MODULES = [
+    dict(id='map',      title='Map',      sub='// where', glyph='◈', accent='cyan',    home='center',   script='modules/map.js'),
+    dict(id='node',     title='Node',     sub='// what',  glyph='✦', accent='amber',   home='left'),
+    dict(id='calendar', title='Calendar', sub='// when',  glyph='⌛', accent='magenta', home='right'),
+    dict(id='control',  title='Control',  sub='// how',   glyph='⚙', accent='violet',  home='bottom'),
 ]
-MODES_SCHEMA = ["radial", "simplex", "peaks"]
-
-GRID_SIZE = 32
-
-class EngineConfig(BaseModel):
-    frequency: float = 0.22
-    amplitude: float = 2.8
-    mode: str = "radial"
+# accents available in deck.css: cyan | magenta | amber | violet

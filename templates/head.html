@@ -1,0 +1,28 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ title | default("LEVELMAP // Command Deck") }}</title>
+
+<link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Rajdhani:wght@400;600&display=swap">
+<link rel="stylesheet" 
+    href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" />
+
+<link rel="stylesheet" href="{{ url_for('static', path='deck.css') }}">
+
+{# layout data: non-executable JSON, read by deck.js #}
+<script id="layout" type="application/json">{{ modules | tojson }}</script>
+
+{# all scripts are deferred and run in this order, after the body is parsed #}
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+
+<script defer src="{{ url_for('static', path='lib/map.js') }}"></script>
+<script defer src="{{ url_for('static', path='deck.js') }}"></script>
+<script defer src="{{ url_for('static', path='feed.js') }}"></script>
+
+{# module scripts go below: always defer, always after deck.js #}
+
+{% for m in modules if m.script %}
+<script defer src="{{ url_for('static', path=m.script) }}"></script>
+{% endfor %}

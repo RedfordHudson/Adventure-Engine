@@ -1,10 +1,9 @@
-
-class MapTest {
-    constructor(containerId = "viewport-container") {
+class LevelMap {
+    constructor(containerId = "map-container") {
         this.container = document.getElementById(containerId);
 
         if (!this.container || !window.maplibregl || !window.THREE) {
-            throw new Error("[MapTest] Missing container or dependencies.");
+            throw new Error("[Map] Missing container or dependencies.");
         }
 
         this.container.style.position = "relative";
@@ -24,7 +23,7 @@ class MapTest {
         this._createLayer();
         this._bindEvents();
 
-        window.mapTest = this;
+        window.map = this;
 
         this.connectWebSocket("ws://localhost:8000/ws/levels");
     }
@@ -86,7 +85,8 @@ class MapTest {
                 this.lineObjects = [];
 
                 const origin = maplibregl.MercatorCoordinate.fromLngLat(
-                    [-117.1611, 32.7157],
+                    // [-117.1611, 32.7157], // San Diego
+                    [-118.2437, 34.0522], // Los Angeles
                     0
                 );
 
@@ -151,7 +151,7 @@ class MapTest {
 
                 this.nodeCount.textContent = String(this.nodes.length);
 
-                console.log("[MapTest] Nodes and connections initialized.");
+                console.log("[Map] Nodes and connections initialized.");
             },
 
             render: (gl, args) => {
@@ -207,11 +207,11 @@ class MapTest {
             }
 
             this.map.triggerRepaint();
-            console.log("[MapTest] Selected node:", node);
+            console.log("[Map] Selected node:", node);
         };
 
         this._onError = (event) => {
-            console.error("[MapTest] Map error:", event.error || event);
+            console.error("[Map] Map error:", event.error || event);
         };
 
         this.map.on("click", this._onClick);
@@ -245,8 +245,8 @@ class MapTest {
         this.map.remove();
         this.panel.remove();
 
-        if (window.mapTest === this) {
-            delete window.mapTest;
+        if (window.map === this) {
+            delete window.map;
         }
 
         this.ws?.close();
@@ -260,7 +260,7 @@ class MapTest {
         this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
-            console.log("[MapTest] WebSocket connected.");
+            console.log("[Map] WebSocket connected.");
         };
 
         this.ws.onmessage = (event) => {
@@ -270,7 +270,7 @@ class MapTest {
                 message = JSON.parse(event.data);
                 console.log(message)
             } catch (error) {
-                console.error("[MapTest] Invalid WebSocket JSON:", error);
+                console.error("[Map] Invalid WebSocket JSON:", error);
                 return;
             }
 
@@ -280,17 +280,17 @@ class MapTest {
         };
 
         this.ws.onerror = (error) => {
-            console.error("[MapTest] WebSocket error:", error);
+            console.error("[Map] WebSocket error:", error);
         };
 
         this.ws.onclose = () => {
-            console.log("[MapTest] WebSocket disconnected.");
+            console.log("[Map] WebSocket disconnected.");
         };
     }
 
     updateNodes(data) {
         if (!Array.isArray(data)) {
-            console.warn("[MapTest] Expected an array of nodes.", data);
+            console.warn("[Map] Expected an array of nodes.", data);
             return;
         }
 
@@ -383,7 +383,7 @@ class MapTest {
 }
 
 // Initialize
-const mapTest = new MapTest();
+const levelMap = new LevelMap();
 
 // Cleanup when needed:
 // mapTest.dispose();

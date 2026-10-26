@@ -1,0 +1,20 @@
+<header id="bar">
+    <div class="brand">LEVEL<b>MAP</b> // DECK</div>
+    <nav class="chips" id="toggles"></nav>
+    <div class="spacer"></div>
+    <button class="chip ghost" id="reset">⟲ Reset Layout</button>
+    <div id="clock">--:--:--</div>
+</header>
+
+<main id="deck">
+    {% for dock in docks %}
+    <section class="dock" data-dock="{{ dock }}"></section>
+    {% endfor %}
+</main>
+
+<footer id="status">
+    <span><i class="led" data-s="ok"></i>Deck online</span>
+    <span><i id="feed-led" class="led" data-s="idle"></i><span id="feed-text">Feed: standby</span></span>
+    <span class="spacer"></span>
+    <span>Drag title bars to re-dock</span>
+</footer>

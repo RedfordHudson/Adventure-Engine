@@ -1,8 +1,8 @@
 SOURCES = {
     'luma':{},
-    '19hz':{},
-    'fl':{},
-    'resident advisor':{},
+    # '19hz':{},
+    # 'fl':{},
+    # 'resident advisor':{},
 }
 
 import os
@@ -18,6 +18,7 @@ from sqlalchemy.orm import sessionmaker
 # Import your database tables from your database module
 from utils.database import EventSource, RawEvent
 from utils.schemas import RawEventRead
+from utils.geospatial import address2coordinates
 
 print('DONE IMPORTING LIBRARIES')
 
@@ -72,11 +73,16 @@ class DB:
         return source.url
 
     def format_event(self,e):
+        lat,lon = address2coordinates(e['address'])
+
         return RawEvent(
             source_id=None,  # Handled automatically by push_events()
             title=e['title'],
             # start_time=e['start_time'],
-            start_time=datetime.now(timezone.utc),           location=e['location'],
+            start_time=datetime.now(timezone.utc),
+            address=e['address'],
+            lat=lat,
+            lon=lon,
             link=e['link'],
             image_link=e['image_link'],
             raw_payload={
