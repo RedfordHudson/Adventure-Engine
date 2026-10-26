@@ -15,10 +15,21 @@ from datetime import datetime
 class Event(BaseModel):
     title: str
     start_time: datetime
-
+    location: str
+    link: str
+    image_link: str
 
 class EventList(BaseModel):
     events: list[Event]
+
+INSTRUCTIONS = (
+    "Extract events from the page. "
+    "Extract the event title, start date/time, location, "
+    "canonical event URL, and image URL. "
+    "Return absolute URLs for links and images. "
+    "Use the event's own link, not unrelated page links. "
+    "If a field is unavailable, do not invent it."
+)
 
 strategy = LLMExtractionStrategy(
     llm_config=LLMConfig(
@@ -26,13 +37,8 @@ strategy = LLMExtractionStrategy(
     ),
     schema=EventList.model_json_schema(),
     extraction_type="schema",
-    instruction="""
-Extract every individual event listing from the supplied Markdown table.
-
-For each event:
-- Extract the event's title and start time from its corresponding columns.
-""",
-    input_format="markdown",
+    instruction=INSTRUCTIONS,
+    # input_format="markdown",
     apply_chunking=False,
     extra_args={"temperature": 0},
     verbose=True,

@@ -1,13 +1,31 @@
+[views]
+- node card (descriptive, what)
+- map (spatial, where)
+- calendar (temporal, when)
+
+[crawler:functionality]
+- scale vertical (better data)
+- scale horizontal (more websites)
+- X duplicate entries
+
+[crawler:aesthetics]
+- better status indicator
+- image support
+- website embed
+- rpg fantasy map aesthetics
+
+
+==================================
+
+[misc:aesthetics]
+- unified stylesheet
 - isometric viewport
-- crawler controller
-- crawler API
-- db
+
+[pages]
 - level manager
+- hub, pages
 - geospatial mapper
     - cytoscape, RAG?
-- image support
-- rpg fantasy map aesthetics
-- unified stylesheet
-- hub, pages
 
+[other]
 - comfyui API

@@ -27,6 +27,9 @@ class RawEventRead(BaseModel):
     source_id: UUID
     title: str
     start_time: datetime
+    location: str
+    link: str
+    image_link: str
     raw_payload: Dict[str, Any]  # Matches JSONB structure dynamically
 
     class Config:

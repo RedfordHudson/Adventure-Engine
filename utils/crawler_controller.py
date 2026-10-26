@@ -76,7 +76,9 @@ class DB:
             source_id=None,  # Handled automatically by push_events()
             title=e['title'],
             # start_time=e['start_time'],
-            start_time=datetime.now(timezone.utc),
+            start_time=datetime.now(timezone.utc),           location=e['location'],
+            link=e['link'],
+            image_link=e['image_link'],
             raw_payload={
                 'payload':e,
             }
