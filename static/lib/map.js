@@ -635,12 +635,30 @@ class LevelMap {
             e.stopPropagation();
             this.select(node.id);
         });
-        card.addEventListener("mouseenter", () => { entry.hoverCard = true; card.classList.add("hover"); });
-        card.addEventListener("mouseleave", () => { entry.hoverCard = false; card.classList.remove("hover"); });
+        card.addEventListener("mouseenter", () => { entry.hoverCard = true; card.classList.add("hover"); this._emitHover(node); });
+        card.addEventListener("mouseleave", () => { entry.hoverCard = false; card.classList.toggle("hover", !!entry.hoverExt); this._emitHover(null); });
 
         card.style.visibility = "hidden";
         this.labelLayer.appendChild(card);
         return card;
+    }
+
+    _emitHover(node) {
+        const id = node ? node.id : null;
+        if (id === this._hoverId) return;
+        this._hoverId = id;
+        this.container.dispatchEvent(new CustomEvent("levelhover", { detail: node, bubbles: true }));
+    }
+
+    /** Hover from another lens. Highlights without emitting. */
+    highlight(id) {
+        id = id == null ? null : String(id);
+        this._hoverId = id;
+        for (const e of this.entries) {
+            e.hoverExt = e.node.id === id;
+            e.card.classList.toggle("hover", e.hoverExt || e.hoverCard);
+        }
+        this.map.triggerRepaint();
     }
 
     _safeImageUrl(link) {
@@ -724,7 +742,7 @@ class LevelMap {
             const ph = e.phase * TAU;
 
             e.sel += ((e.selected ? 1 : 0) - e.sel) * k;
-            e.hov += ((e.hoverPick || e.hoverCard ? 1 : 0) - e.hov) * k;
+            e.hov += ((e.hoverPick || e.hoverCard || e.hoverExt ? 1 : 0) - e.hov) * k;
 
             p.orb.position.z = e.orbZ + Math.sin(t * 1.4 + ph) * 4 + e.sel * 14 + e.hov * 6;
             p.orb.scale.setScalar(1 + e.sel * 0.3 + e.hov * 0.12);
@@ -775,6 +793,7 @@ class LevelMap {
             const hit = this._pick(event.point);
             for (const e of this.entries) e.hoverPick = e === hit;
             this.map.getCanvas().style.cursor = hit ? "pointer" : "";
+            this._emitHover(hit ? hit.node : null);
         };
 
         this._onError = (event) => {
