@@ -44,12 +44,12 @@ const Feed = (() => {
   }
 
   const start = (u) => { url = u || url; wanted = true; if (!sock) open(); };
-  const stop  = () => { wanted = false; clearTimeout(timer); sock?.close(); };
-  const send  = obj => sock?.readyState === WebSocket.OPEN && (sock.send(JSON.stringify(obj)), true);
+  const stop = () => { wanted = false; clearTimeout(timer); sock?.close(); };
+  const send = obj => sock?.readyState === WebSocket.OPEN && (sock.send(JSON.stringify(obj)), true);
 
   // every deferred script has run (and subscribed) by DOMContentLoaded, so no early messages are missed
   document.addEventListener('DOMContentLoaded', () =>
     start((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/levels'));
 
-  return {on, bind, send, start, stop, emit: dispatch};
+  return { on, bind, send, start, stop, emit: dispatch };
 })();

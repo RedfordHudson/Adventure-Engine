@@ -112,10 +112,10 @@ class Crawler:
         self.source_id = uuid.UUID(str(source_id))
 
     def main(self):
-        with DB(self.source_id) as db:
-            self.process(db)
+        # with DB(self.source_id) as db:
+        #     self.process(db)
 
-        return
+        # return
 
         # 🌟 Leverage the 'with' context manager to safely execute transactions [source: 3, 5]
         with DB(self.source_id) as db:

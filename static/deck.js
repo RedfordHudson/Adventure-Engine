@@ -104,7 +104,7 @@ const layout = [
     { id: 'map', title: 'Map', sub: '// where', glyph: '◈', accent: 'cyan', home: 'center', mountId: 'map-mount' },
     { id: 'node', title: 'Node', sub: '// what', glyph: '✦', accent: 'amber', home: 'left', mountId: 'node-mount' },
     { id: 'calendar', title: 'Calendar', sub: '// when', glyph: '⌛', accent: 'magenta', home: 'right', mountId: 'calendar-mount' },
-    { id: 'control', title: 'Control', sub: '// how', glyph: '⚙', accent: 'violet', home: 'bottom', mountId: 'control-mount' },
+    { id: 'control', title: 'Control', sub: '// utility', glyph: '⚙', accent: 'violet', home: 'bottom', mountId: 'control-mount' },
 ];
 layout.forEach(Deck.create);
 
@@ -171,19 +171,21 @@ const Pods = (() => {
     };
 
     // crawler controller: status lamp + run/pause + sync
-    const cM = add('crawler', 'Crawler'), cL = lamp(cM); cL.set('idle', 'paused');
-    cM.insertAdjacentHTML('beforeend', '<button class="pbtn" data-a="toggle" title="Start / pause">▶</button><button class="pbtn" data-a="sync">⟳ Sync</button>');
-    let running = false;
-    const rest = () => cL.set(running ? 'ok' : 'idle', running ? 'crawling' : 'paused');
+    const cM = add('crawler', 'Crawler'), cL = lamp(cM); cL.set('idle', 'idle');
+    // cM.insertAdjacentHTML('beforeend', '<button class="pbtn" data-a="toggle" title="Start / pause">▶</button><button class="pbtn" data-a="sync">⟳ Sync</button>');
+    cM.insertAdjacentHTML('beforeend', '<button class="pbtn" data-a="sync">⟳ Sync</button>');
+    // let running = false;
+    // const rest = () => cL.set(running ? 'ok' : 'idle', running ? 'crawling' : 'idle');
     cM.addEventListener('click', e => {
         const a = e.target.dataset.a; if (!a) return;
-        if (a === 'toggle') {
-            running = !running; e.target.textContent = running ? '❚❚' : '▶'; rest();
-            document.dispatchEvent(new CustomEvent('crawler:toggle', { detail: { running } }));
-        }
+        // if (a === 'toggle') {
+        //     running = !running; e.target.textContent = running ? '❚❚' : '▶'; rest();
+        //     document.dispatchEvent(new CustomEvent('crawler:toggle', { detail: { running } }));
+        // }
         if (a === 'sync') {
-            cL.set('busy', 'syncing'); document.dispatchEvent(new CustomEvent('crawler:sync'));
-            setTimeout(rest, 1400); // demo only: call Pods.crawler.set(...) from your real sync handler instead
+            // cL.set('busy', 'stop'); 
+            document.dispatchEvent(new CustomEvent('crawler:sync'));
+            // setTimeout(rest, 1400); // demo only: call Pods.crawler.set(...) from your real sync handler instead
         }
     });
     const crawler = { set: cL.set, get running() { return running; } };
@@ -204,3 +206,5 @@ clock.textContent = new Date().toLocaleTimeString([], { hour12: false });
    Mount points: #map-mount  #calendar-mount  #node-mount
    Status: Pods.ws.set('ok','linked')   Pods.crawler.set('busy','crawling')
    Events (on document): 'crawler:sync', 'crawler:toggle'   Extra pod: Pods.add(id,label) → mount element */
+
+   
