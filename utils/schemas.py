@@ -22,17 +22,26 @@ class EventSourceRead(EventSourceBase):
 
 # --- Event Schemas ---
 
-class RawEventRead(BaseModel):
-    id: UUID
-    source_id: UUID
-    title: str
-    start_time: datetime
-    address: str
-    lat: float | None = None
-    lon: float | None = None
-    link: str
-    image_link: str
-    raw_payload: Dict[str, Any]  # Matches JSONB structure dynamically
+from typing import Any
+from uuid import UUID
 
-    class Config:
-        from_attributes = True
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+
+class RawEventIn(BaseModel):                 # validates data before it touches the DB
+    source_id: UUID
+    api_id: str = Field(max_length=500)
+    url: str
+    title: str = Field(min_length=1, max_length=500)
+    start_time: AwareDatetime                # rejects naive datetimes
+    address: str | None = Field(None, max_length=500)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
+    location_approximate: bool = False
+    cover_url: str | None = None
+    raw_payload: dict[str, Any]
+
+
+class RawEventRead(RawEventIn):              # same fields, plus id, built from ORM rows
+    id: UUID
+    model_config = ConfigDict(from_attributes=True)

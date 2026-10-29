@@ -2,12 +2,12 @@
  * LevelMap — AR-style level selector on MapLibre + three.js
  *
  * Each event becomes a neon tower with an orb floating above it. A card
- * (node.title + node.image_link) hangs above every orb and always faces the
+ * (node.title + node.cover_url) hangs above every orb and always faces the
  * viewer. Cards are HTML overlays projected from the orb's 3D position, so
  * any image URL works (no CORS needed, unlike WebGL textures) and text stays crisp.
  *
  * Node fields (all optional except lng/lat):
- *   id, title | name, image_link | image, lng | lon | longitude,
+ *   id, title | name, cover_url | image, lng | lon | longitude,
  *   lat | latitude, height | altitude (tower height in meters), color
  *
  * Emits a "levelselect" CustomEvent on the container with { detail: node }.
@@ -96,7 +96,7 @@ class LevelMap {
             id: String(raw.id ?? index),
             title,
             name: title,
-            image: raw.image_link ?? raw.image ?? null,
+            image: raw.cover_url ?? raw.image ?? null,
             lng: Number(raw.lng ?? raw.lon ?? raw.longitude),
             lat: Number(raw.lat ?? raw.latitude),
             height: Number(raw.height ?? raw.altitude ?? 0) || 0,

@@ -39,23 +39,37 @@ class EventSource(Base):
     events = relationship('RawEvent', back_populates='source', cascade='all, delete-orphan')
 
 
-class RawEvent(Base):
-    __tablename__ = 'raw_events'
+import uuid
+from typing import Any
+from uuid import UUID
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    source_id = Column(UUID(as_uuid=True), ForeignKey('event_sources.id'), nullable=False)
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, String,
+                        Text, UniqueConstraint)
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.orm import relationship
+
+
+class RawEvent(Base):
+    __tablename__ = "raw_events"
+    __table_args__ = (
+        UniqueConstraint("source_id", "api_id", name="uq_raw_events_source_api"),
+    )
+
+    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_id = Column(PG_UUID(as_uuid=True), ForeignKey("event_sources.id"), nullable=False)
+    api_id = Column(String(500), nullable=False)
+    url = Column(Text, nullable=False)
     title = Column(String(500), nullable=False)
     start_time = Column(DateTime(timezone=True), nullable=False)
-    address = Column(String(500), nullable=False)
+    address = Column(String(500), nullable=True)      # null for hidden locations
     lat = Column(Float, nullable=True)
     lon = Column(Float, nullable=True)
-    link = Column(Text, nullable=False)
-    image_link = Column(Text, nullable=False)
-    
-    # 🌟 Fluid Schema column
+    location_approximate = Column(Boolean, nullable=False, default=False)
+    cover_url = Column(Text, nullable=True)
     raw_payload = Column(JSONB, nullable=False)
 
-    source = relationship('EventSource', back_populates='events')
+    source = relationship("EventSource", back_populates="events")
 
 
 # --- db dependency ---
@@ -74,10 +88,14 @@ class DB:
         
     async def get_events(self):
 
-        result = await self.session.execute(select(RawEvent))
-        events = result.scalars().all()
+        # result = await self.session.execute(select(RawEvent))
+        # events = result.scalars().all()
 
-        events = [schemas.RawEventRead.model_validate(e).model_dump() for e in events]
+        # # events = [schemas.RawEventRead.model_validate(e).model_dump() for e in events]
+        # events = [dict(e) for e in events]
+
+        result = await self.session.execute(select(RawEvent.__table__))
+        events = [dict(r) for r in result.mappings().all()]
 
         return events
     

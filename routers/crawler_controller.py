@@ -7,7 +7,7 @@ from fastapi.encoders import jsonable_encoder
 from utils.database import get_session, DB
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.websocket import ws, DataStreamPayload
-from utils.parse_events import interim
+# from utils.parse_events import interim
 
 # @router.post('/crawler/refresh')
 async def refresh(
@@ -15,10 +15,10 @@ async def refresh(
 ):
     events = await DB(session).get_events()
 
-    node_levels = interim(events)
-    node_levels = [jsonable_encoder(e) for e in node_levels]
+    # node_levels = interim(events)
+    # node_levels = [jsonable_encoder(e) for e in node_levels]
 
-    payload = DataStreamPayload(data=node_levels)
+    payload = DataStreamPayload(data=events)
 
     await ws.broadcast_event(payload)
     

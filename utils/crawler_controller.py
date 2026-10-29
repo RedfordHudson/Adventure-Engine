@@ -17,7 +17,7 @@ from sqlalchemy.orm import sessionmaker
 
 # Import your database tables from your database module
 from utils.database import EventSource, RawEvent
-from utils.schemas import RawEventRead
+from utils.schemas import RawEventRead, RawEventIn
 from utils.geospatial import address2coordinates
 
 print('DONE IMPORTING LIBRARIES')
@@ -72,39 +72,61 @@ class DB:
         source = res.scalar_one()
         return source.url
 
-    def format_event(self,e):
-        lat,lon = address2coordinates(e['address'])
-
-        return RawEvent(
-            source_id=None,  # Handled automatically by push_events()
+    def to_raw_event(self,e) -> RawEvent:
+        data = RawEventIn(
+            source_id=self.source_id,
+            api_id=e['id'],
+            url=e['url'],
             title=e['title'],
-            # start_time=e['start_time'],
-            start_time=datetime.now(timezone.utc),
+            start_time=e['start'],          # ISO string; pydantic parses to aware datetime
             address=e['address'],
-            lat=lat,
-            lon=lon,
-            link=e['link'],
-            image_link=e['image_link'],
-            raw_payload={
-                'payload':e,
-            }
+            lat=e['lat'], lon=e['lon'],
+            location_approximate=e['location_approximate'],
+            cover_url=e['cover_url'],
+            raw_payload=e,
         )
+        
+        raw_event = RawEvent(**data.model_dump())
+
+        return raw_event
 
     def push_events(self, events):
         rows = []
 
         for e in events:
-            e = self.format_event(e)
-            e.source_id = self.source_id
+            e = self.to_raw_event(e)
             self.session.add(e)
             rows.append(e)
 
         self.session.flush()
 
         for e in rows:
-            validated = RawEventRead.model_validate(e)
+            RawEventRead.model_validate(e)
 
         self.session.commit()
+
+    def add_new_events(self, events: list[dict]) -> list[RawEvent]:
+        # dedupe within the batch as well
+        candidates: dict[str, RawEvent] = {}
+        for raw in events:
+            obj = self.to_raw_event(raw)
+            candidates.setdefault(obj.api_id, obj)
+
+        if not candidates:
+            return []
+
+        existing = set(self.session.scalars(
+            select(RawEvent.api_id).where(
+                RawEvent.source_id == self.source_id,
+                RawEvent.api_id.in_(list(candidates)),
+            )
+        ))
+
+        new = [obj for api_id, obj in candidates.items() if api_id not in existing]
+        if new:
+            self.session.add_all(new)
+            self.session.commit()
+        return new
 
 
 class Crawler:
@@ -112,10 +134,9 @@ class Crawler:
         self.source_id = uuid.UUID(str(source_id))
 
     def main(self):
-        # with DB(self.source_id) as db:
-        #     self.process(db)
-
-        # return
+        with DB(self.source_id) as db:
+            self.process(db)
+        return
 
         # 🌟 Leverage the 'with' context manager to safely execute transactions [source: 3, 5]
         with DB(self.source_id) as db:
@@ -135,26 +156,32 @@ class Crawler:
         self.notify('syncing')
 
         # 2. Get URL & Run Scraper
-        url = db.fetch_url()
-        result = self.crawl(url)
-        events = json.loads(result['extracted_content'])
+        # url = db.fetch_url()
+        # result = self.crawl(url)
+        events = self.crawl()
+        # events = json.loads(result['extracted_content'])
 
         # 3. Save Events
-        db.push_events(events)
+        # db.push_events(events)
+        db.add_new_events(events)
 
         # 4. Success Completion Hooks
         db.update_status('idle')
         db.update_sync_time()
         self.notify('idle')
 
-    def crawl(self, url):
-        SURROGATE = False
+    def crawl(self):
 
-        if not SURROGATE:
-            from utils.crawler import main
-            return asyncio.run(main(url))
+        from crawlers.luma import main
+        return asyncio.run(main())
+    
+        # SURROGATE = False
+
+        # if not SURROGATE:
+        #     from utils.crawler import main
+        #     return asyncio.run(main(url))
         
-        return self.surrogate(url)
+        # return self.surrogate(url)
 
     def surrogate(self, url):
         # 🌟 Synchronous time block (no asyncio required) [source: 4]

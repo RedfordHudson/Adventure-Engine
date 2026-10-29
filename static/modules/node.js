@@ -4,7 +4,7 @@ const NodeCard = (() => {
   host.replaceChildren();                         // drop the placeholder
 
   // fields rendered explicitly; everything else on the event is listed generically
-  const KNOWN = new Set(['id', 'title', 'name', 'image_link', 'image', 'lng', 'lon', 'longitude',
+  const KNOWN = new Set(['id', 'title', 'name', 'cover_url', 'image', 'lng', 'lon', 'longitude',
     'lat', 'latitude', 'height', 'altitude', 'color']);
   let selectedId = null, lastSig = '';
 
@@ -41,7 +41,7 @@ const NodeCard = (() => {
     return {
       id: String(id ?? n.id ?? ''),
       title: n.title ?? n.name ?? 'Untitled',
-      image: safeImg(n.image ?? n.image_link),
+      image: safeImg(n.image ?? n.cover_url),
       lng: Number(n.lng ?? n.lon ?? n.longitude),
       lat: Number(n.lat ?? n.latitude),
       height: Number(n.height ?? n.altitude ?? 0) || 0,
